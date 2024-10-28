@@ -1,8 +1,8 @@
 # Bolt-Data-Analysis-in-R
 # Projet Developper :
-  Mathys 
-  Geordy 
-  Wade Mamadou 
+  #Mathys 
+  #Geordy 
+  #Wade Mamadou 
 
   
 # Introduction :
