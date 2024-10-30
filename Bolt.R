@@ -36,15 +36,95 @@ data <- data %>%
     Year = year(DateTime)            # Extraire l'année
   )
 
-# Créer un tableau croisé pour le nombre de trajets par jour de la semaine et par heure
-tableau_croise <- data %>%
-  mutate(Heure_simple = substr(Hour, 1, 2)) %>%  # Extraire uniquement l'heure
-  group_by(JourSemaine, Heure_simple) %>%
-  summarise(Nombre_de_trajets = n(), .groups = 'drop') %>%  # Ajout de .groups = 'drop' pour éviter le warning
-  pivot_wider(names_from = Heure_simple, values_from = Nombre_de_trajets, values_fill = 0)
 
-# Afficher le tableau croisé
-print(tableau_croise, width = Inf)
+library(forcats)
+
+heatmap_data <- data %>%
+  mutate(Heure_simple = substr(Hour, 1, 2),
+         JourSemaine = factor(JourSemaine, levels = c("dimanche", "samedi", "vendredi", "jeudi", "mercredi", "mardi", "lundi"))) %>%
+  group_by(JourSemaine, Heure_simple) %>%
+  summarise(Nombre_de_trajets = n(), .groups = 'drop')
+
+ggplot(heatmap_data, aes(x = Heure_simple, y = JourSemaine, fill = Nombre_de_trajets)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkred") +
+  labs(title = "Nombre de trajets par heure et jour de la semaine",
+       x = "Heure",
+       y = "Jour de la semaine",
+       fill = "Nombre de trajets") +
+  theme_minimal(base_size = 20) +  # Augmenter la taille de texte pour améliorer la lisibilité
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Incliner les heures pour plus de clarté
+
+
+ggplot(heatmap_data, aes(x = as.numeric(Heure_simple), y = Nombre_de_trajets, color = JourSemaine, group = JourSemaine)) +
+  geom_line(size = 1) +
+  labs(title = "Heures de pointe par jour de la semaine",
+       x = "Heure",
+       y = "Nombre de trajets",
+       color = "Jour de la semaine") +
+  theme_minimal()
+
+
+# Calculer le nombre total de trajets par jour
+daily_counts <- data %>%
+  group_by(JourSemaine) %>%
+  summarise(Total_Trajets = n())
+
+# Graphique
+ggplot(daily_counts, aes(x = reorder(JourSemaine, -Total_Trajets), y = Total_Trajets, fill = JourSemaine)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Nombre total de trajets par jour de la semaine",
+       x = "Jour de la semaine",
+       y = "Nombre de trajets") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+library(dplyr)
+library(ggplot2)
+
+# Convertir les colonnes 'Month' et 'JourSemaine' en facteurs avec les ordres chronologiques
+monthly_weekday_counts <- monthly_weekday_counts %>%
+  mutate(
+    Month = factor(Month, levels = c("January", "February", "March", "April", 
+                                     "May", "June", "July", "August", 
+                                     "September", "October", "November", "December")),
+         JourSemaine = factor(JourSemaine, levels = c("dimanche", "samedi", "vendredi", "jeudi", "mercredi", "mardi", "lundi")))
+
+# Créer un graphique en barres empilées
+ggplot(monthly_weekday_counts, aes(x = Month, y = Nombre_de_trajets, fill = JourSemaine)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Nombre de trajets par mois et par jour de la semaine",
+       x = "Mois",
+       y = "Nombre de trajets",
+       fill = "Jour de la semaine") +
+  theme_minimal()
+
+# Calculer le nombre de trajets par jour et par base
+daily_base_counts <- data %>%
+  group_by(JourSemaine, Base) %>%
+  summarise(Nombre_de_trajets = n(), .groups = 'drop')
+
+daily_base_counts <- daily_base_counts %>%
+  mutate(JourSemaine = factor(JourSemaine, levels = c("lundi", "mardi", "mercredi", "jeudi", 
+                                                      "vendredi", "samedi", "dimanche")))
+
+ggplot(daily_base_counts, aes(x = JourSemaine, y = Nombre_de_trajets, fill = Base)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Nombre de trajets par jour et par base",
+       x = "Jour de la semaine",
+       y = "Nombre de trajets",
+       fill = "Base") +
+  theme_minimal()
+
+
+
+
+
+
+
+
+
 
 
 
