@@ -8,8 +8,6 @@ library(dplyr)     # Pour la manipulation des données
 library(lubridate) # Pour manipuler les dates et les heures
 library(tidyr)     # Pour manipuler les données en format long et large
 
-# Afficher le tableau croisé
-print(tableau_croise)
 
 
 
@@ -25,9 +23,12 @@ summary(data)
 missing_summary <- data %>% summarise(across(everything(), ~sum(is.na(.))))
 print(missing_summary)
 
+# Échantillonner aléatoirement 100 000 points
+data_sample <- data %>% sample_n(100000)
+
 
 # Convertir la colonne Date/Time en format date-heure (DateTime) en format Posix
-data <- data %>%
+data_sample <- data_sample %>%
   mutate(
     DateTime = mdy_hms(`Date/Time`),  # Convertir en format date-heure
     Date = as.Date(DateTime),         # Extraire la date
@@ -39,7 +40,7 @@ data <- data %>%
 
 library(forcats)
 
-heatmap_data <- data %>%
+heatmap_data <- data_sample %>%
   mutate(Heure_simple = substr(Hour, 1, 2),
          JourSemaine = factor(JourSemaine, levels = c("dimanche", "samedi", "vendredi", "jeudi", "mercredi", "mardi", "lundi"))) %>%
   group_by(JourSemaine, Heure_simple) %>%
@@ -66,7 +67,7 @@ ggplot(heatmap_data, aes(x = as.numeric(Heure_simple), y = Nombre_de_trajets, co
 
 
 # Calculer le nombre total de trajets par jour
-daily_counts <- data %>%
+daily_counts <- data_sample %>%
   group_by(JourSemaine) %>%
   summarise(Total_Trajets = n())
 
@@ -80,8 +81,10 @@ ggplot(daily_counts, aes(x = reorder(JourSemaine, -Total_Trajets), y = Total_Tra
   theme(legend.position = "none")
 
 
-library(dplyr)
-library(ggplot2)
+# Calculer le nombre de trajets par mois et par jour de la semaine
+monthly_weekday_counts <- data_sample %>%
+  group_by(Month, JourSemaine) %>%
+  summarise(Nombre_de_trajets = n(), .groups = 'drop')
 
 # Convertir les colonnes 'Month' et 'JourSemaine' en facteurs avec les ordres chronologiques
 monthly_weekday_counts <- monthly_weekday_counts %>%
@@ -100,32 +103,61 @@ ggplot(monthly_weekday_counts, aes(x = Month, y = Nombre_de_trajets, fill = Jour
        fill = "Jour de la semaine") +
   theme_minimal()
 
-# Calculer le nombre de trajets par jour et par base
-daily_base_counts <- data %>%
-  group_by(JourSemaine, Base) %>%
+# Calculer le nombre total de trajets par base
+base_counts <- data_sample %>%
+  group_by(Base) %>%
   summarise(Nombre_de_trajets = n(), .groups = 'drop')
 
-daily_base_counts <- daily_base_counts %>%
-  mutate(JourSemaine = factor(JourSemaine, levels = c("lundi", "mardi", "mercredi", "jeudi", 
-                                                      "vendredi", "samedi", "dimanche")))
+# Créer un graphique en barres
+ggplot(base_counts, aes(x = reorder(Base, -Nombre_de_trajets), y = Nombre_de_trajets, fill = Base)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Nombre total de trajets par base",
+       x = "Base",
+       y = "Nombre de trajets") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Cacher la légende si elle n'est pas nécessaire
 
-ggplot(daily_base_counts, aes(x = JourSemaine, y = Nombre_de_trajets, fill = Base)) +
-  geom_bar(stat = "identity", position = "stack") +
-  labs(title = "Nombre de trajets par jour et par base",
-       x = "Jour de la semaine",
-       y = "Nombre de trajets",
-       fill = "Base") +
+
+
+
+library(sf)
+library(maps)
+
+# Charger une carte simplifiée (par exemple, des États-Unis ou une région plus générale)
+world <- st_as_sf(map("world", plot = FALSE, fill = TRUE))
+
+# Visualiser les points des trajets sur la carte
+ggplot() +
+  geom_sf(data = world, fill = "gray90", color = "white") +
+  geom_point(data = data_sample, aes(x = Lon, y = Lat), color = "blue", alpha = 0.3, size = 0.5) +
+  labs(title = "Répartition géographique des trajets Bolt",
+       x = "Longitude",
+       y = "Latitude") +
+  coord_sf() +
   theme_minimal()
 
-
-
-
-
-
-
-
-
-
-
+# Définir les limites de la carte pour zoomer sur la région (par exemple, autour de New York)
+ggplot() +
+  geom_sf(data = world, fill = "gray90", color = "white") +
+  geom_point(data = data_sample, aes(x = Lon, y = Lat), color = "blue", alpha = 0.3, size = 0.5) +
+  labs(title = "Répartition géographique des trajets Bolt",
+       x = "Longitude",
+       y = "Latitude") +
+  coord_sf(xlim = c(-74.3, -73.7), ylim = c(40.5, 41.0)) +  # Ajuste ces valeurs selon ta région
+  theme_minimal()
 
 print(head(data), width = Inf)
+
+
+# Définir des limites géographiques pour la côte Est pour vérifier si il y a des valeurs aberrantes
+limites_cote_est_longitude <- c(-80, -65)  # Plage de longitudes pour la côte Est
+limites_cote_est_latitude <- c(24, 50)     # Plage de latitudes pour la côte Est
+
+# Filtrer les points en dehors de la côte Est
+points_hors_cote_est <- data %>%
+  filter(Lon < limites_cote_est_longitude[1] | Lon > limites_cote_est_longitude[2] |
+         Lat < limites_cote_est_latitude[1] | Lat > limites_cote_est_latitude[2])
+
+# Afficher le nombre de points et un aperçu
+nrow(points_hors_cote_est)
+
