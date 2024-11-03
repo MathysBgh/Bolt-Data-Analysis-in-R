@@ -7,21 +7,30 @@ library(naniar)    # Pour une analyse approfondie des données manquantes
 library(dplyr)     # Pour la manipulation des données
 library(lubridate) # Pour manipuler les dates et les heures
 library(tidyr)     # Pour manipuler les données en format long et large
+library(forcats)  # Pour manipuler les facteurs
+library(car)  # Charger le package car pour la fonction vif
 
 
 # Charger les données
 data <- read_csv("bolt-merged-data-2014.csv")
-# Échantillonner aléatoirement 100 000 points
-data = data %>% sample_n(100000)
+
+# Afficher le nombre de lignes
+nrow(data)  
+names(data)
+head(data)
 
 # Compter le nombre de valeurs manquantes par colonne
 missing_summary <- data %>% summarise(across(everything(), ~sum(is.na(.))))
 print(missing_summary)
 
+# Échantillonner aléatoirement 100 000 points
+data = data %>% sample_n(100000)
+
+
 
 weather <- read_csv("new_york_weather_2014.csv", skip = 3)
 head(weather)
-
+names(weather)
 
 
 # Convertir la colonne DATE en format Date dans les deux datasets
@@ -45,13 +54,6 @@ data <- data %>%
 
 # Vérifier un aperçu après la jointure sans tronquer les colonnes
 glimpse(data)
-
-
-
-
-
-
-library(forcats)
 
 heatmap_data <- data %>%
   mutate(Heure_simple = substr(Hour, 1, 2),
@@ -92,7 +94,6 @@ ggplot(daily_counts, aes(x = reorder(JourSemaine, -Total_Trajets), y = Total_Tra
        y = "Nombre de trajets") +
   theme_minimal() +
   theme(legend.position = "none")
-
 
 # Calculer le nombre de trajets par mois et par jour de la semaine
 monthly_weekday_counts <- data %>%
@@ -149,7 +150,7 @@ ggplot() +
   coord_sf() +
   theme_minimal()
 
-# Définir les limites de la carte pour zoomer sur la région (par exemple, autour de New York)
+# Définir les limites de la carte pour zoomer autour de New York
 ggplot() +
   geom_sf(data = world, fill = "gray90", color = "white") +
   geom_point(data = data, aes(x = Lon, y = Lat, color = Base), alpha = 0.5, size = 1) +
@@ -157,7 +158,7 @@ ggplot() +
        x = "Longitude",
        y = "Latitude",
        color = "Base") +
-  coord_sf(xlim = c(-74.3, -73.7), ylim = c(40.5, 41.0)) +  # Ajuste ces valeurs selon ta région
+  coord_sf(xlim = c(-74.3, -73.7), ylim = c(40.5, 41.0)) + 
   theme_minimal()
 
 
@@ -197,7 +198,10 @@ ggplot() +
 # Ajouter une variable `Moment_journee` avec des intervalles de 6 heures
 data <- data %>%
   mutate(
-    Hour_numeric = as.numeric(substr(Hour, 1, 2)),  # Convertir l'heure en numérique
+    Hour_numeric = ifelse(as.numeric(substr(Hour, 1, 2)) == 23 & as.numeric(substr(Hour, 4, 5)) >= 30, 
+                          23,  # Si l'heure est 23:30 ou plus, rester à 23
+                          as.numeric(substr(Hour, 1, 2)) + ifelse(as.numeric(substr(Hour, 4, 5)) >= 30, 1, 0)
+    ),
     Moment_journee = case_when(
       Hour_numeric >= 0 & Hour_numeric < 6 ~ "Nuit",
       Hour_numeric >= 6 & Hour_numeric < 12 ~ "Matin",
@@ -205,6 +209,9 @@ data <- data %>%
       Hour_numeric >= 18 & Hour_numeric < 24 ~ "Soir"
     )
   )
+
+# afficher head(data) mais que les colonnes JourSemaine + Moment_journee + Month + MAX_TEMPERATURE_C
+head(data[, c("JourSemaine","Hour_numeric","Hour", "Moment_journee", "Month", "MAX_TEMPERATURE_C")],10)
 
 # Regrouper les données par Date, JourSemaine, Month et Moment_journee, puis compter le nombre de trajets
 data_grouped <- data %>%
@@ -215,23 +222,62 @@ data_grouped <- data %>%
 data_grouped <- data_grouped %>%
   left_join(weather, by = c("Date" = "DATE"))
 
-# Vérifier un aperçu des données regroupées sans tronquer les colonnes
-head(data_grouped)
+
+data_grouped <- data_grouped %>%
+  mutate(
+    Temperature_moment_journee = case_when(
+      Moment_journee == "Matin" ~ TEMPERATURE_MORNING_C,
+      Moment_journee == "Après-midi" ~ TEMPERATURE_NOON_C,
+      Moment_journee == "Soir" ~ TEMPERATURE_EVENING_C,
+      Moment_journee == "Nuit" ~ TEMPERATURE_NIGHT_C
+    )
+  )
+
+
+# Vérifier un aperçu des données regroupées utilisées pour la modélisation certaines colonnes
+head(data_grouped[, c("JourSemaine", "Moment_journee", "Month", "Temperature_moment_journee")])
 
 set.seed(123)  # Pour garantir la reproductibilité
-train_indices <- sample(1:nrow(data_grouped), 0.7 * nrow(data_grouped))
+train_indices <- sample(seq_len(nrow(data_grouped)), 0.7 * nrow(data_grouped))
 train_data <- data_grouped[train_indices, ]
 test_data <- data_grouped[-train_indices, ]
 
+# tester la corrélation entre les variables explicatives et la variable cible
+cor(train_data$Nombre_de_trajets, train_data$Temperature_moment_journee)
+cor(train_data$Nombre_de_trajets, train_data$PRECIP_TOTAL_DAY_MM)
+cor(train_data$Nombre_de_trajets, train_data$HUMIDITY_MAX_PERCENT)
+cor(train_data$Nombre_de_trajets, train_data$WINDSPEED_MAX_KMH)
+cor(train_data$Nombre_de_trajets, train_data$VISIBILITY_AVG_KM)
+
+# Effectuer une ANOVA
+summary(aov(Nombre_de_trajets ~ Moment_journee, data = train_data))
+summary(aov(Nombre_de_trajets ~ Month, data = train_data))
+summary(aov(Nombre_de_trajets ~ JourSemaine, data = train_data))
+
+
+# faire un vif pour étudier la multicollinéarité entre les variables explicatives
+vif(lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + Temperature_moment_journee, data = train_data))
+
+# Calcul des corrélations entre Temperature_moment_journee et d'autres variables numériques
+cor_matrix <- cor(train_data %>% 
+                  select(Temperature_moment_journee, MAX_TEMPERATURE_C, PRECIP_TOTAL_DAY_MM, 
+                         HUMIDITY_MAX_PERCENT, WINDSPEED_MAX_KMH, VISIBILITY_AVG_KM,), use = "complete.obs")
+
+# Afficher la matrice de corrélation
+print(cor_matrix)
+
+
+
 # Créer le modèle avec l'ensemble d'entraînement
-modele <- lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + MAX_TEMPERATURE_C +
-             PRECIP_TOTAL_DAY_MM + HUMIDITY_MAX_PERCENT + WINDSPEED_MAX_KMH +
-             VISIBILITY_AVG_KM, data = train_data)
+modele <- lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + VISIBILITY_AVG_KM, data = train_data)
+
+# tester l'imapct de chaque variable explicative sur la variable cible individuellement
+summary(lm(Nombre_de_trajets ~ JourSemaine + Month, data = train_data))
+
 
 # Évaluer le modèle avec l'ensemble de test
 predictions <- predict(modele, newdata = test_data)
 
-summary(modele)
 # Calculer l'Erreur Absolue Moyenne (MAE)
 mae <- mean(abs(predictions - test_data$Nombre_de_trajets))
 
@@ -247,7 +293,7 @@ sse <- sum((predictions - test_data$Nombre_de_trajets)^2)  # Somme des carrés r
 r_squared <- 1 - (sse / sst)
 
 # Afficher les métriques
+cat("R²:", r_squared, "\n")
 cat("MAE:", mae, "\n")
 cat("MSE:", mse, "\n")
 cat("RMSE:", rmse, "\n")
-cat("R²:", r_squared, "\n")
