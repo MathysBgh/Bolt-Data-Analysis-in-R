@@ -9,26 +9,24 @@ library(lubridate) # Pour manipuler les dates et les heures
 library(tidyr)     # Pour manipuler les données en format long et large
 
 
-
-
 # Charger les données
 data <- read_csv("bolt-merged-data-2014.csv")
+# Échantillonner aléatoirement 100 000 points
+data = data %>% sample_n(100000)
 
-# Afficher un aperçu des données
-head(data)
-summary(data)
-
-# Analyser les données manquantes
 # Compter le nombre de valeurs manquantes par colonne
 missing_summary <- data %>% summarise(across(everything(), ~sum(is.na(.))))
 print(missing_summary)
 
-# Échantillonner aléatoirement 100 000 points
-data_sample <- data %>% sample_n(100000)
+
+weather <- read_csv("new_york_weather_2014.csv", skip = 3)
+head(weather)
 
 
+
+# Convertir la colonne DATE en format Date dans les deux datasets
 # Convertir la colonne Date/Time en format date-heure (DateTime) en format Posix
-data_sample <- data_sample %>%
+data <- data %>%
   mutate(
     DateTime = mdy_hms(`Date/Time`),  # Convertir en format date-heure
     Date = as.Date(DateTime),         # Extraire la date
@@ -37,10 +35,25 @@ data_sample <- data_sample %>%
     Year = year(DateTime)            # Extraire l'année
   )
 
+weather <- weather %>%
+  mutate(DATE = as.Date(DATE, format = "%Y-%m-%d"))
+
+# Fusionner les données des trajets avec les données météo
+data <- data %>%
+  left_join(weather, by = c("Date" = "DATE"))
+
+
+# Vérifier un aperçu après la jointure sans tronquer les colonnes
+glimpse(data)
+
+
+
+
+
 
 library(forcats)
 
-heatmap_data <- data_sample %>%
+heatmap_data <- data %>%
   mutate(Heure_simple = substr(Hour, 1, 2),
          JourSemaine = factor(JourSemaine, levels = c("dimanche", "samedi", "vendredi", "jeudi", "mercredi", "mardi", "lundi"))) %>%
   group_by(JourSemaine, Heure_simple) %>%
@@ -67,7 +80,7 @@ ggplot(heatmap_data, aes(x = as.numeric(Heure_simple), y = Nombre_de_trajets, co
 
 
 # Calculer le nombre total de trajets par jour
-daily_counts <- data_sample %>%
+daily_counts <- data %>%
   group_by(JourSemaine) %>%
   summarise(Total_Trajets = n())
 
@@ -82,7 +95,7 @@ ggplot(daily_counts, aes(x = reorder(JourSemaine, -Total_Trajets), y = Total_Tra
 
 
 # Calculer le nombre de trajets par mois et par jour de la semaine
-monthly_weekday_counts <- data_sample %>%
+monthly_weekday_counts <- data %>%
   group_by(Month, JourSemaine) %>%
   summarise(Nombre_de_trajets = n(), .groups = 'drop')
 
@@ -104,7 +117,7 @@ ggplot(monthly_weekday_counts, aes(x = Month, y = Nombre_de_trajets, fill = Jour
   theme_minimal()
 
 # Calculer le nombre total de trajets par base
-base_counts <- data_sample %>%
+base_counts <- data %>%
   group_by(Base) %>%
   summarise(Nombre_de_trajets = n(), .groups = 'drop')
 
@@ -129,7 +142,7 @@ world <- st_as_sf(map("world", plot = FALSE, fill = TRUE))
 # Visualiser les points des trajets sur la carte
 ggplot() +
   geom_sf(data = world, fill = "gray90", color = "white") +
-  geom_point(data = data_sample, aes(x = Lon, y = Lat), color = "blue", alpha = 0.3, size = 0.5) +
+  geom_point(data = data, aes(x = Lon, y = Lat), color = "blue", alpha = 0.3, size = 0.5) +
   labs(title = "Répartition géographique des trajets Bolt",
        x = "Longitude",
        y = "Latitude") +
@@ -139,14 +152,13 @@ ggplot() +
 # Définir les limites de la carte pour zoomer sur la région (par exemple, autour de New York)
 ggplot() +
   geom_sf(data = world, fill = "gray90", color = "white") +
-  geom_point(data = data_sample, aes(x = Lon, y = Lat), color = "blue", alpha = 0.3, size = 0.5) +
-  labs(title = "Répartition géographique des trajets Bolt",
+  geom_point(data = data, aes(x = Lon, y = Lat, color = Base), alpha = 0.5, size = 1) +
+  labs(title = "Répartition des trajets par base",
        x = "Longitude",
-       y = "Latitude") +
+       y = "Latitude",
+       color = "Base") +
   coord_sf(xlim = c(-74.3, -73.7), ylim = c(40.5, 41.0)) +  # Ajuste ces valeurs selon ta région
   theme_minimal()
-
-print(head(data), width = Inf)
 
 
 # Définir des limites géographiques pour la côte Est pour vérifier si il y a des valeurs aberrantes
@@ -161,3 +173,33 @@ points_hors_cote_est <- data %>%
 # Afficher le nombre de points et un aperçu
 nrow(points_hors_cote_est)
 
+# Créer une heatmap de densité sur la carte de New York
+ggplot() +
+  geom_sf(data = world, fill = "gray90", color = "white") +
+  stat_density2d(
+    data = data,
+    aes(x = Lon, y = Lat, fill = ..level..),
+    geom = "polygon",
+    alpha = 0.5
+  ) +
+  scale_fill_gradient(low = "lightblue", high = "darkred") +
+  labs(
+    title = "Heatmap de la densité des trajets Bolt",
+    x = "Longitude",
+    y = "Latitude",
+    fill = "Densité"
+  ) +
+  coord_sf(xlim = c(-74.3, -73.7), ylim = c(40.5, 41.0)) +  # Ajuste ces valeurs selon ta région
+  theme_minimal()
+
+
+# Regrouper les données par jour et heure et compter le nombre de trajets
+data_grouped <- data %>%
+  group_by(Date, JourSemaine, Hour) %>%
+  summarise(Nombre_de_trajets = n(), .groups = 'drop')
+
+head(data_grouped,1000)
+
+# Joindre les données météo pour avoir les variables explicatives dans `data_grouped`
+data_grouped <- data_grouped %>%
+  left_join(weather, by = c("Date" = "DATE"))
