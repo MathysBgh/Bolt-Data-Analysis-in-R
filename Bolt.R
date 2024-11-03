@@ -9,11 +9,32 @@ library(lubridate) # Pour manipuler les dates et les heures
 library(tidyr)     # Pour manipuler les données en format long et large
 library(forcats)  # Pour manipuler les facteurs
 library(car)  # Charger le package car pour la fonction vif
+library(randomForest) # Charger le package randomForest pour l'algorithme de forêt aléatoire
 
 
-# Charger les données
-data <- read_csv("bolt-merged-data-2014.csv")
+# Liste des fichiers à lire avec le chemin complet
+files <- list.files(pattern = "bolt-raw-data-.*\\.csv", full.names = TRUE)
+print(files)
 
+# Liste des mois correspondants
+months <- c("April", "May", "June", "July", "August", "September")
+
+# Fonction pour lire et ajouter la colonne 'Month'
+read_and_label <- function(file, month) {
+  data <- read.csv(file)
+  data$Month <- month
+  return(data)
+}
+
+
+# Lecture et fusion des fichiers
+data <- bind_rows(
+  lapply(seq_along(files), function(i) read_and_label(files[i], months[i]))
+)
+
+data <- data %>%
+  rename(`Date/Time` = Date.Time)
+  
 # Afficher le nombre de lignes
 nrow(data)  
 names(data)
@@ -195,6 +216,10 @@ ggplot() +
 
 
 
+
+
+
+
 # Ajouter une variable `Moment_journee` avec des intervalles de 6 heures
 data <- data %>%
   mutate(
@@ -234,8 +259,8 @@ data_grouped <- data_grouped %>%
   )
 
 
-# Vérifier un aperçu des données regroupées utilisées pour la modélisation certaines colonnes
-head(data_grouped[, c("JourSemaine", "Moment_journee", "Month", "Temperature_moment_journee")])
+# Vérifier un aperçu des données regroupées utilisées pour la modélisation certaines colonnes sans tronquer
+head(data_grouped[, c("Date","JourSemaine", "Moment_journee", "Month", "Temperature_moment_journee", "Nombre_de_trajets")],10)
 
 set.seed(123)  # Pour garantir la reproductibilité
 train_indices <- sample(seq_len(nrow(data_grouped)), 0.7 * nrow(data_grouped))
@@ -256,7 +281,7 @@ summary(aov(Nombre_de_trajets ~ JourSemaine, data = train_data))
 
 
 # faire un vif pour étudier la multicollinéarité entre les variables explicatives
-vif(lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + Temperature_moment_journee, data = train_data))
+vif(lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + Temperature_moment_journee + VISIBILITY_AVG_KM, data = train_data))
 
 # Calcul des corrélations entre Temperature_moment_journee et d'autres variables numériques
 cor_matrix <- cor(train_data %>% 
@@ -270,9 +295,6 @@ print(cor_matrix)
 
 # Créer le modèle avec l'ensemble d'entraînement
 modele <- lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + VISIBILITY_AVG_KM, data = train_data)
-
-# tester l'imapct de chaque variable explicative sur la variable cible individuellement
-summary(lm(Nombre_de_trajets ~ JourSemaine + Month, data = train_data))
 
 
 # Évaluer le modèle avec l'ensemble de test
@@ -297,3 +319,30 @@ cat("R²:", r_squared, "\n")
 cat("MAE:", mae, "\n")
 cat("MSE:", mse, "\n")
 cat("RMSE:", rmse, "\n")
+
+# pareil avec random forest
+
+
+# Créer le modèle avec l'ensemble d'entraînement
+
+modele_rf <- randomForest(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + VISIBILITY_AVG_KM, data = train_data)
+
+# Évaluer le modèle avec l'ensemble de test
+predictions_rf <- predict(modele_rf, newdata = test_data)
+
+# Calculer l'Erreur Absolue Moyenne (MAE)
+mae_rf <- mean(abs(predictions_rf - test_data$Nombre_de_trajets))
+
+# Calculer l'Erreur Quadratique Moyenne (MSE)
+mse_rf <- mean((predictions_rf - test_data$Nombre_de_trajets)^2)
+
+# Calculer la Racine de l'Erreur Quadratique Moyenne (RMSE)
+rmse_rf <- sqrt(mse_rf)
+
+# Calculer le R² (Coefficient de détermination)
+sst_rf <- sum((test_data$Nombre_de_trajets - mean(test_data$Nombre_de_trajets))^2)  # Somme des carrés totaux
+sse_rf <- sum((predictions_rf - test_data$Nombre_de_trajets)^2)  # Somme des carrés résiduels
+r_squared_rf <- 1 - (sse_rf / sst_rf)
+
+# Afficher les métriques
+cat("R² (Random Forest):", r_squared_rf, "\n")
