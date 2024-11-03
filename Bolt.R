@@ -251,5 +251,3 @@ cat("MAE:", mae, "\n")
 cat("MSE:", mse, "\n")
 cat("RMSE:", rmse, "\n")
 cat("R²:", r_squared, "\n")
-
-
