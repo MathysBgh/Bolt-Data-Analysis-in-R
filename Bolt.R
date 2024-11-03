@@ -193,13 +193,63 @@ ggplot() +
   theme_minimal()
 
 
-# Regrouper les données par jour et heure et compter le nombre de trajets
+
+# Ajouter une variable `Moment_journee` avec des intervalles de 6 heures
+data <- data %>%
+  mutate(
+    Hour_numeric = as.numeric(substr(Hour, 1, 2)),  # Convertir l'heure en numérique
+    Moment_journee = case_when(
+      Hour_numeric >= 0 & Hour_numeric < 6 ~ "Nuit",
+      Hour_numeric >= 6 & Hour_numeric < 12 ~ "Matin",
+      Hour_numeric >= 12 & Hour_numeric < 18 ~ "Après-midi",
+      Hour_numeric >= 18 & Hour_numeric < 24 ~ "Soir"
+    )
+  )
+
+# Regrouper les données par Date, JourSemaine, Month et Moment_journee, puis compter le nombre de trajets
 data_grouped <- data %>%
-  group_by(Date, JourSemaine, Hour) %>%
+  group_by(Date, JourSemaine, Moment_journee, Month) %>%
   summarise(Nombre_de_trajets = n(), .groups = 'drop')
 
-head(data_grouped,1000)
-
-# Joindre les données météo pour avoir les variables explicatives dans `data_grouped`
+# Joindre les données météo pour inclure les variables explicatives
 data_grouped <- data_grouped %>%
   left_join(weather, by = c("Date" = "DATE"))
+
+# Vérifier un aperçu des données regroupées sans tronquer les colonnes
+head(data_grouped)
+
+set.seed(123)  # Pour garantir la reproductibilité
+train_indices <- sample(1:nrow(data_grouped), 0.7 * nrow(data_grouped))
+train_data <- data_grouped[train_indices, ]
+test_data <- data_grouped[-train_indices, ]
+
+# Créer le modèle avec l'ensemble d'entraînement
+modele <- lm(Nombre_de_trajets ~ JourSemaine + Moment_journee + Month + MAX_TEMPERATURE_C +
+             PRECIP_TOTAL_DAY_MM + HUMIDITY_MAX_PERCENT + WINDSPEED_MAX_KMH +
+             VISIBILITY_AVG_KM, data = train_data)
+
+# Évaluer le modèle avec l'ensemble de test
+predictions <- predict(modele, newdata = test_data)
+
+summary(modele)
+# Calculer l'Erreur Absolue Moyenne (MAE)
+mae <- mean(abs(predictions - test_data$Nombre_de_trajets))
+
+# Calculer l'Erreur Quadratique Moyenne (MSE)
+mse <- mean((predictions - test_data$Nombre_de_trajets)^2)
+
+# Calculer la Racine de l'Erreur Quadratique Moyenne (RMSE)
+rmse <- sqrt(mse)
+
+# Calculer le R² (Coefficient de détermination)
+sst <- sum((test_data$Nombre_de_trajets - mean(test_data$Nombre_de_trajets))^2)  # Somme des carrés totaux
+sse <- sum((predictions - test_data$Nombre_de_trajets)^2)  # Somme des carrés résiduels
+r_squared <- 1 - (sse / sst)
+
+# Afficher les métriques
+cat("MAE:", mae, "\n")
+cat("MSE:", mse, "\n")
+cat("RMSE:", rmse, "\n")
+cat("R²:", r_squared, "\n")
+
+
