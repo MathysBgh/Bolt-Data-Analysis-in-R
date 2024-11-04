@@ -40,6 +40,13 @@ nrow(data)
 names(data)
 head(data)
 
+# Retirer les lignes doublons dans le DataFrame
+data <- data %>% distinct()
+
+# Afficher le nombre de lignes après suppression des doublons
+nrow(data)
+
+
 # Compter le nombre de valeurs manquantes par colonne
 missing_summary <- data %>% summarise(across(everything(), ~sum(is.na(.))))
 print(missing_summary)
